@@ -1,0 +1,55 @@
+# INNR auto-off service configuration (no secrets in this file).
+# Copy to config.toml next to compose.yaml and adjust.
+
+[bridge]
+host = "192.0.2.10"        # REQUIRED: LAN address of your INNR bridge. This placeholder is refused at startup.
+port = 10000
+cert_sha256 = ""           # optional: pin the bridge certificate (64 hex characters)
+
+[cloud]
+region = "eu"
+state_feed = true          # cloud MQTT as second state source
+reconcile_seconds = 60     # discovery + state check against the cloud device list
+
+# How this service presents itself to the INNR cloud. REQUIRED, but no values are shipped with this project:
+# the cloud API is undocumented and only accepts requests that look like the official app. Fill these in
+# (see docs/CLOUD_CLIENT.md) or keep them in the git-ignored deploy/client.toml, which the deploy scripts merge
+# into config.toml. Using a third-party client may be against INNR's terms of service; use at your own risk.
+[cloud.client]
+app_id = ""
+user_agent = ""
+package_name = ""
+app_version = ""
+web_version = ""
+build_number = 0
+os_version = ""
+web_view_version = ""
+device_model = ""
+device_name = ""
+origin = ""
+
+[defaults]
+auto_off_enabled = true    # default for plugs listed below without an explicit value
+delay_seconds = 1800       # 30 minutes
+new_plug_auto_off = false  # plugs added later in the INNR app start monitor-only
+restart_policy = "resume"  # "resume": keep the original ON time across restarts; "restart": fresh timer
+
+# Optional seeds. Every plug of the account is discovered automatically and starts monitor-only;
+# normally you enable auto-off and set the delay per plug in the Web UI (stored in /data/state.json,
+# which takes precedence over everything here). A seed gives a plug an initial setting or a name:
+#
+# [[plugs]]
+# dev_id = "00000000000000000000000000000001"   # 32 hex characters, shown in the logs as plug_discovered dev=...
+# name = "Coffee machine"
+# auto_off_enabled = true
+# delay_seconds = 1800
+
+[web]
+enabled = true
+bind = "0.0.0.0"           # inside the container; compose publishes it on one LAN address only
+port = 8480
+session_idle_seconds = 28800
+session_max_seconds = 604800
+tls_cert = ""              # optional: set both to serve HTTPS
+tls_key = ""
+refresh_seconds = 1        # dashboard reload interval (1 to 60)

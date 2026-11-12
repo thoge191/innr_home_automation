@@ -1,0 +1,33 @@
+# Python / tooling
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+
+# OS
+.DS_Store
+
+# Secrets and environment (never commit)
+secrets/
+.env
+.env.*
+*.env
+!deploy/env.example
+*.pem
+*.key
+
+# Local runtime data
+data/
+logs/
+*.jsonl
+deploy/local/
+state.json
+web_auth.json
+audit.log*
+
+# Private investigation material and site-specific files (kept locally, never committed)
+input/
+prototype/
+deploy/site.env
+deploy/client.toml

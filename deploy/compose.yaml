@@ -1,0 +1,51 @@
+# INNR auto-off service. Used unchanged on the Mac (local test) and on the Synology NAS.
+# Values come from the .env file next to this file (see deploy/env.example). No secrets in here.
+name: innr-autooff
+
+services:
+  innr-autooff:
+    # Immutable sha-<8> tag only. The default is deliberately invalid so a missing tag fails loudly.
+    image: ghcr.io/${GHCR_OWNER:?set GHCR_OWNER in .env}/innr-autooff:${APP_TAG:-set-APP_TAG}
+    container_name: innr-autooff
+    restart: unless-stopped
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 192m
+    pids_limit: 64
+    environment:
+      INNR_EMAIL: ${INNR_EMAIL:?set INNR_EMAIL in .env}
+      INNR_PASSWORD_FILE: /run/secrets/innr_password
+      INNR_CONFIG: /config/config.toml
+      INNR_DATA_DIR: /data
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    secrets:
+      - innr_password
+    volumes:
+      - ./config.toml:/config/config.toml:ro
+      - innr_autooff_data:/data
+    ports:
+      # Web UI on ONE host address only (Mac: 127.0.0.1, NAS: its LAN address). Never 0.0.0.0 by accident.
+      - "${WEB_BIND_IP:?set WEB_BIND_IP in .env}:${WEB_PORT:-8480}:8480"
+    healthcheck:
+      test: ["CMD", "innr-autooff", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 180s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+secrets:
+  innr_password:
+    file: ./secrets/innr_password
+
+volumes:
+  innr_autooff_data:

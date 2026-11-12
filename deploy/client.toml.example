@@ -1,0 +1,20 @@
+# Copy to deploy/client.toml (git-ignored) and fill in. The deploy scripts merge this table into the
+# target config.toml (deploy/merge-client-profile.sh), replacing only the [cloud.client] table.
+#
+# How the service presents itself to the INNR cloud. REQUIRED. The cloud API is undocumented and only
+# accepts requests that look like the official app, so these values must come from you: this project
+# ships none. What each key means and where the values come from: docs/CLOUD_CLIENT.md.
+# Using a third-party client may be against INNR's terms of service; you act on your own account and
+# at your own risk.
+[cloud.client]
+app_id = ""
+user_agent = ""
+package_name = ""
+app_version = ""
+web_version = ""
+build_number = 0
+os_version = ""
+web_view_version = ""
+device_model = ""
+device_name = ""
+origin = ""

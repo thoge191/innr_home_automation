@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "innr-autooff"
+version = "0.1.0"
+description = "Per-plug auto-off for INNR SP 240 plugs: local state, cloud commands"
+readme = "README.md"
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
+requires-python = ">=3.13"
+dependencies = ["paho-mqtt==2.2.0"]
+
+[project.scripts]
+innr-autooff = "innr_autooff.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = ["live: needs real bridge and INNR account (deselected by default)"]
+addopts = "-m 'not live' -q"

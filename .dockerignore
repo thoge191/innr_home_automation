@@ -1,0 +1,12 @@
+# Allow-list: only what the image build needs. Secrets, .env files, git, local state never enter the context.
+*
+!requirements.txt
+!requirements-dev.txt
+!pyproject.toml
+!src/
+!tests/
+!deploy/config.example.toml
+!deploy/merge-client-profile.sh
+**/__pycache__
+**/*.pyc
+**/.DS_Store

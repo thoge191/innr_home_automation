@@ -1,0 +1,24 @@
+INNR auto-off
+Copyright (C) 2026 thoge191
+
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public
+License, version 3 only, as published by the Free Software Foundation. It is distributed in the hope that it will be
+useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
+PURPOSE. See the file LICENSE for the full text.
+
+Credits and third-party notices
+-------------------------------
+* API knowledge. How the INNR (Arnoo) cloud API is used - the login request fields, the request headers, the MQTT topic
+  scheme and the "setDevAttrReq" / "setDevAttrNotif" message formats - was learned from the open-source Homey app
+  "homey-innr-bridge" by smarthomesven (GPL-3.0), https://github.com/smarthomesven/homey-innr-bridge, and checked against
+  the author's own account and devices. The code in this repository is an independent Python implementation, published
+  under the same license family out of respect for that work. Thank you.
+* paho-mqtt (Eclipse Paho, EPL-2.0 OR BSD-3-Clause) is the only runtime dependency. It is installed unmodified from the
+  Python Package Index with a pinned hash and is not copied into this repository. The container image additionally
+  contains Python and Debian packages under their own licenses.
+
+Trademarks and affiliation
+--------------------------
+INNR, Leedarson, Arnoo, Synology, DiskStation, DSM, Docker, GitHub, Alexa, Home Assistant and other names are
+trademarks or registered trademarks of their respective owners. This project is independent: it is not affiliated with,
+endorsed by or supported by any of them. Names are used only to describe compatibility.
