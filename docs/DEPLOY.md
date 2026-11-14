@@ -148,7 +148,7 @@ deploy/deploy-nas.sh deploy sha-<8>
 | Change `config.toml` (bridge address, region, refresh interval) | edit `/volume1/docker/innr-autooff/config.toml` with sudo, then restart: `ssh -t myNAS sudo /usr/local/bin/docker restart innr-autooff` (a changed mounted file does not recreate the container) |
 | Rebuild for OS security fixes | every 1 to 2 months: refresh the base digest in `Dockerfile`, commit, B1, B3 |
 
-The container restarts automatically after a NAS reboot (`restart: unless-stopped`). Container
+The container restarts automatically after a NAS reboot and after a Docker daemon restart (`restart: always`; see "Container stopped or not restarted" below for why `unless-stopped` is not enough). Container
 Manager lists the container `innr-autooff`; do not change it there, use the scripts (they are the
 record of what is deployed). On DSM, `docker` is `/usr/local/bin/docker` (not on the ssh PATH) and
 needs `sudo`; DSM 7.2.1 ships Docker 24.0.2 and Compose v2.20.1 (checked when this was written).
@@ -200,7 +200,7 @@ What to look at, in this order (`deploy/deploy-nas.sh diagnose` collects 1 to 4 
 1. **Did the NAS reboot?** `uptime` in the report. If the NAS is older than the container's stop time, it did not reboot, and the Docker daemon was restarted by something else.
 2. **Did the Docker daemon restart?** In the report, compare the start times of `dockerd` / `containerd` with the boot time. A daemon that is newer than the NAS was restarted (package action, crash, or killed under memory pressure).
 3. **How did the container end?** `exit=` and `oom_killed=` of the container, and the last lines of its log: `event=shutdown` means a graceful stop (`docker stop`, package stop); no such line and `exit=137` means it was killed (memory, or the daemon was killed).
-4. **Restart policy.** `restart=unless-stopped` does **not** bring a container back after a daemon restart if it had been stopped (including by the Container Manager stop script) first; `restart=always` does. Compare with your other containers in the report.
+4. **Restart policy.** `restart=unless-stopped` does **not** bring a container back when the daemon restarts underneath it and stops it (or when it was stopped first, including by the Container Manager stop script); `restart=always` does. This project uses `always`. To keep a container down on purpose: `docker update --restart=no <name>` and `docker stop <name>`.
 5. **Memory.** A 2 GB NAS that is deep in swap (`free -m`, `pswpin` / `pswpout`) kills or stalls things. Big users on a DS218+ are Antivirus scans, Plex, Java-based containers. The report lists the biggest processes.
 
 Reading logs of other containers is **opt-in per call**: `diagnose` never reads them, `container-log <name>` reads exactly the one you name,

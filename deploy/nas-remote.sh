@@ -208,6 +208,8 @@ case "${1:-}" in
       sudo journalctl -u pkg-ContainerManager-dockerd.service --no-pager -o short-iso --since "-${H} hours" 2>&1 | grep -a -E "$LIFE" | grep -a -v 'loading plugin' | tail -80 | cut -c1-230
       echo; echo "### the last lines of the daemon before each stop or crash (what it was doing when it died)"
       sudo journalctl -u pkg-ContainerManager-dockerd.service --no-pager -o short-iso --since "-${H} hours" 2>&1 | grep -a -v 'loading plugin' | grep -a -B 14 -E 'Main process exited|Failed with result|Watchdog|SIGKILL|SIGABRT|SIGSEGV|fatal error|panic|Stopping' | tail -150 | cut -c1-230
+      echo; echo "### daemon crash: panic and stack trace (function names show where it failed)"
+      sudo journalctl -u pkg-ContainerManager-dockerd.service --no-pager -o short-iso --since "-${H} hours" 2>&1 | grep -a -A 45 -E 'panic:|fatal error:' | grep -a -E 'panic|fatal|SIGSEGV|goroutine|^[0-9T:+-]+ [A-Za-z_]+ [a-z]+\[[0-9]+\]: *(github|runtime|net|main|created by|[a-z]+/)|\.go:[0-9]+|\+0x' | head -70 | cut -c1-220
       echo; echo "### all services: Docker / package / memory / disk-stall events in the system journal (filtered)"
       sudo journalctl --since "-${H} hours" --no-pager -o short-iso 2>&1 | grep -a -E 'systemd\[1\]: .*(pkg-ContainerManager|docker)|synopkg|synoservice|synosystemd|Out of memory|oom-kill|Killed process|invoked oom|blocked for more than|hung_task|soft lockup|rcu_sched|I/O error|segfault' | grep -a -v -E 'loading plugin|synoavscan' | tail -120 | cut -c1-230
       echo; echo "### kernel: memory kills, stalls"

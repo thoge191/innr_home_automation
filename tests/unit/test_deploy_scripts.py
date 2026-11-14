@@ -136,6 +136,7 @@ def test_diagnose_collects_metadata_and_leaks_nothing(fakebin):
     assert "event=timer_started" in report                 # and the end of our decision log
     assert "### docker stack start times" in report and "### Docker service lifecycle" in report
     assert "### the last lines of the daemon before each stop or crash" in report and "### kernel: memory kills" in report
+    assert "### daemon crash: panic and stack trace" in report and "### Docker service: unit file and daemon configuration" in report
     # what must never be in it
     for leak in ("hunter2-LEAK", "sk-LEAK", "DB_PASSWORD", "API_KEY", "LEAK:"):
         assert leak not in report, leak
@@ -217,3 +218,17 @@ def test_container_log_section_is_the_only_place_reading_other_logs():
     for line in others.splitlines():
         if re.search(r'"\$DOCKER" logs', line):
             assert '"$CONTAINER"' in line, line
+
+
+# ---------------------------------------------------------------- restart policy (field evidence 2026-11-14)
+COMPOSE = os.path.join(DEPLOY, "compose.yaml")
+
+
+@pytest.mark.skipif(not os.path.exists(COMPOSE), reason="compose file not present")
+def test_compose_restarts_always_not_unless_stopped():
+    """A crashed Docker daemon is restarted by systemd while containers keep running; the new daemon (live-restore off)
+    stops them and does NOT restart `unless-stopped` ones. `always` is the policy that brings the service back."""
+    text = open(COMPOSE, encoding="utf-8").read()
+    policies = re.findall(r"^\s+restart:\s*(\S+)", text, re.M)
+    assert policies == ["always"], policies
+    assert "unless-stopped" not in re.sub(r"#.*", "", text)        # only mentioned in the explanatory comment

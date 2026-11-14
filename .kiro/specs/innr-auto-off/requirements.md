@@ -125,7 +125,7 @@ Acceptance criteria:
 
 1. R7.1 (Must) THE Service SHALL be delivered as one container image built from one Dockerfile for `linux/arm64` (Mac, first deployment) and `linux/amd64` (Synology NAS, later).
 2. R7.2 (Must) Base image and Python dependencies SHALL be pinned. Image tags SHALL be immutable `sha-<8-char git sha>`; `latest` SHALL NOT be used.
-3. R7.3 (Must) A compose file SHALL start the Service with `restart: unless-stopped`, the state volume, the config file, the secret and the health check.
+3. R7.3 (Must) A compose file SHALL start the Service with `restart: always` (not `unless-stopped`: field evidence 2026-11-14, a crashed Docker daemon was restarted by systemd with the containers still running and the new daemon stopped them without restarting `unless-stopped` ones; the Service resumes cleanly after any restart, so always restarting is safe), the state volume, the config file, the secret and the health check.
 4. R7.4 (Must) THE Service SHALL be run and verified on the Mac (arm64, Docker) before the NAS, including a run of the `linux/amd64` image under emulation on the Mac.
 5. R7.5 (Must) THE Service SHALL work from a container network that has outbound access to the bridge's LAN address (no host network or privileged mode required).
 6. R7.6 (Should) Deployment SHALL be reversible: previous image tag recorded, health checked after start, rollback to the previous tag documented.

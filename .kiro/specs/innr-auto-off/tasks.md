@@ -62,6 +62,15 @@ Evidence (NAS container log, UTC): 10:16:28 the bridge confirmed OFF; 10:16:45 t
 - [x] Site-specific values out of the repository: investigation notes, prototype scripts, device and gateway ids, LAN addresses, NAS login name (git-ignored or replaced by placeholders; `deploy/site.env` holds the local values)
 - [x] Runbook and README rewritten for a reader without access to the author's machine
 
+## M10 Incident 2026-11-14 (container down every morning)
+Evidence (NAS journal, local time): 07:29 to 07:31 the Docker daemon's calls to its runtime time out and the health probe of the service container times out; 07:31:19 `dockerd` panics (nil pointer dereference, SIGSEGV); systemd restarts it after 2 s (`Restart=always`); the unit has `KillMode=process` so the containers keep running; the new daemon (live-restore off) stops the service container and logs `ShouldRestart failed, container will not be restarted` because its policy was `unless-stopped`; a container with `always` is started again. The system log shows no kernel out-of-memory kill. The NAS has 2 GB RAM and was deep in swap, with an antivirus scan running for 31 hours.
+- [x] Tooling to find this without guessing: `deploy-nas.sh diagnose` (metadata only, privacy-tested), `start`, opt-in `container-log <name>`
+- [x] Restart policy `always` (compose, requirement R7.3, pinned by a test)
+- [ ] Deploy the compose change to the NAS (`deploy-nas.sh deploy <current tag>` recreates the container with the new policy)
+- [ ] Read the panic stack trace of the daemon (new section in `diagnose`) to confirm whether the health probe is involved; if so, relax or drop the container health check on this host
+- [ ] Reduce the trigger on the NAS: antivirus scan schedule, memory use (owner decision)
+- Optional, owner decision: `"live-restore": true` in the Container Manager daemon config keeps containers running through daemon crashes (system configuration; DSM updates may overwrite it)
+
 ## M9 Public release preparation
 - [x] GPL-3.0-only: license headers, `NOTICE`, `SECURITY.md`, package metadata
 - [x] Image owner is configuration (`GHCR_OWNER`), not code
