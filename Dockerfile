@@ -19,7 +19,7 @@ RUN /opt/venv/bin/python -m compileall -q /opt/app/src
 FROM build AS test
 COPY requirements-dev.txt pyproject.toml /opt/app/
 COPY tests/ /opt/app/tests/
-COPY deploy/config.example.toml deploy/merge-client-profile.sh /opt/app/deploy/
+COPY deploy/config.example.toml deploy/merge-client-profile.sh deploy/nas-remote.sh deploy/deploy-nas.sh /opt/app/deploy/
 RUN /opt/venv/bin/pip install --no-deps -r /opt/app/requirements-dev.txt
 WORKDIR /opt/app
 RUN /opt/venv/bin/python -m pytest -p no:cacheprovider

@@ -157,6 +157,62 @@ case "${1:-}" in
   logs)
     compose logs --tail 200
     ;;
+  start)
+    # Start the service if it is not running (e.g. after Container Manager restarted); no pull, no config change.
+    sudo test -f "$APP_DIR/.env" || die "no deployment found in $APP_DIR: run 'deploy/deploy-nas.sh deploy <tag>' first"
+    compose up -d
+    S="$(health_wait)"
+    compose logs --tail 15
+    log "container is: $S"
+    [[ "$S" == "healthy" ]] || die "not healthy yet ($S); see 'deploy/deploy-nas.sh logs'"
+    ;;
+  diagnose)
+    # Read-only report about the Docker host for "the container stopped / does not come back" problems.
+    # PRIVACY: only metadata of the containers (name, image, restart policy, state, exit code, times, memory) is
+    # collected, never their environment, mounts, commands or logs. Only OUR container's log is read.
+    H="${2:-72}"
+    [[ "$H" =~ ^[0-9]{1,4}$ ]] || die "hours must be a number"
+    OUT="$HOME/innr-diag-export"
+    rm -rf "$OUT"
+    mkdir -m 700 "$OUT"
+    F="$OUT/diag.txt"
+    set +e   # a missing tool or an empty grep must not abort the report
+    {
+      echo "### host"; date "+%F %T %Z"; uptime
+      echo "booted: $(date -d "@$(( $(date +%s) - $(cut -d. -f1 /proc/uptime) ))" "+%F %T %Z" 2>/dev/null)"
+      free -m; df -h /volume1 2>/dev/null | tail -1
+      grep -E '^(pswpin|pswpout) ' /proc/vmstat
+      echo; echo "### docker stack start times (the daemon restarted if these are newer than the boot time)"
+      ps -eo pid,lstart,comm 2>/dev/null | grep -E 'dockerd|containerd' | cut -c1-90
+      echo; echo "### biggest processes (names only, no arguments)"
+      ps -eo pid,lstart,rss,comm --sort=-rss 2>/dev/null | head -12 | cut -c1-90
+      echo; echo "### docker daemon"
+      sudo "$DOCKER" info --format 'version={{.ServerVersion}} live_restore={{.LiveRestoreEnabled}} running={{.ContainersRunning}} stopped={{.ContainersStopped}} cgroup={{.CgroupDriver}}' 2>&1
+      echo; echo "### containers: metadata only (no environment, mounts, commands or logs)"
+      for id in $(sudo "$DOCKER" ps -aq 2>/dev/null); do
+        sudo "$DOCKER" inspect -f '{{.Name}} image={{.Config.Image}} restart={{.HostConfig.RestartPolicy.Name}} status={{.State.Status}} started={{.State.StartedAt}} finished={{.State.FinishedAt}} exit={{.State.ExitCode}} oom_killed={{.State.OOMKilled}} restarts={{.RestartCount}} mem_limit={{.HostConfig.Memory}} error={{.State.Error}}' "$id" 2>&1
+      done
+      echo; echo "### memory use of running containers"
+      sudo "$DOCKER" stats --no-stream --format '{{.Name}} mem={{.MemUsage}} cpu={{.CPUPerc}}' 2>&1
+      echo; echo "### our container: last 40 operational log lines (the service scrubs its secrets)"
+      sudo "$DOCKER" logs --tail 200 "$CONTAINER" 2>&1 | grep -v -e 'kind=signal' -e 'kind=decision' -e 'event=http ' | tail -40 | cut -c1-220
+      echo; echo "### our container: last 8 decisions (the end of the file shows when the service stopped)"
+      sudo "$DOCKER" exec "$CONTAINER" sh -c 'tail -8 /data/logs/decisions.log' 2>&1 | cut -c1-220
+      echo; echo "### system log: docker / memory / package events, newest last (filtered; other lines are not copied)"
+      PAT='dockerd|containerd|docker daemon|ContainerManager|out of memory|oom-kill|oom_reaper|Killed process|invoked oom|segfault|respawn|synoavscan'
+      for f in /var/log/messages.2.xz /var/log/messages.1.xz; do
+        sudo test -r "$f" && { echo "--- $f"; sudo xz -dc "$f" 2>/dev/null | grep -a -i -E "$PAT" | tail -60 | cut -c1-230; }
+      done
+      echo "--- /var/log/messages"; sudo grep -a -i -E "$PAT" /var/log/messages 2>/dev/null | tail -150 | cut -c1-230
+      echo; echo "### kernel ring buffer: memory kills"
+      sudo dmesg 2>/dev/null | grep -a -i -E 'out of memory|oom|killed process' | tail -20 | cut -c1-230
+      echo; echo "### unit status / journal of the Docker service, last ${H} h (only if systemd tools exist)"
+      sudo systemctl status pkg-ContainerManager-dockerd.service --no-pager 2>&1 | head -14 | cut -c1-200
+      sudo journalctl -u pkg-ContainerManager-dockerd.service --no-pager --since "-${H} hours" 2>&1 | tail -60 | cut -c1-230
+    } > "$F" 2>&1
+    set -e
+    log "diagnose report written: $(wc -l < "$F") lines"
+    ;;
   fetch-logs)
     # Export the signal / decision files (all rotations, oldest first) and the operational log lines
     # into a private temp folder in the ssh user's home; deploy-nas.sh copies them to the Mac and removes it.
@@ -173,6 +229,6 @@ case "${1:-}" in
     log "exported to $OUT: $(wc -l < "$OUT/signals.log") signal, $(wc -l < "$OUT/decisions.log") decision, $(wc -l < "$OUT/ops.log") operational lines"
     ;;
   *)
-    die "usage: nas-remote.sh login <owner>|secret|deploy <tag> <ip> <bridge-ip> <owner>|rollback|status|logs|fetch-logs [hours]"
+    die "usage: nas-remote.sh login <owner>|secret|deploy <tag> <ip> <bridge-ip> <owner>|rollback|status|logs|start|diagnose [hours]|fetch-logs [hours]"
     ;;
 esac

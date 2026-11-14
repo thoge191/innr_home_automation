@@ -138,6 +138,8 @@ deploy/deploy-nas.sh deploy sha-<8>
 | Logs for analysis (copies signals, decisions and operational log to `./logs/nas/`) | `deploy/deploy-nas.sh fetch-logs 24` |
 | Update to a new version | commit, `deploy/build-push.sh --push`, `deploy/deploy-nas.sh deploy sha-<new>` |
 | Roll back | `deploy/deploy-nas.sh rollback` |
+| Start the container if it is not running (for example after Container Manager restarted) | `deploy/deploy-nas.sh start` |
+| Find out why the container stopped (host and container metadata only, copied to `./logs/nas/diag.txt`) | `deploy/deploy-nas.sh diagnose 72` |
 | Change the INNR password | `deploy/deploy-nas.sh secret` |
 | Renew the GHCR token (every 90 days) | `deploy/deploy-nas.sh login` |
 | Change the Web UI password | `ssh -t myNAS sudo /usr/local/bin/docker exec -it innr-autooff innr-autooff set-password` |
@@ -187,8 +189,20 @@ countdown again. Disabling auto-off for that plug on its settings page stops the
 | `exec format error` | Image without amd64 variant; republish with `build-push.sh --push` |
 | Web UI not reachable | `WEB_BIND_IP` in `.env` must be the NAS LAN address; the DSM firewall (if enabled) must allow TCP 8480 from the LAN |
 | Locked out of the Web UI after wrong passwords | Wait (up to 15 min) or restart the container |
+| The container is not running in the morning, or after Container Manager restarted | Run `deploy/deploy-nas.sh start` at once (until it runs, nothing switches plugs off), then `deploy/deploy-nas.sh diagnose 72` and read the section "Container stopped or not restarted" below |
 | Plug stays on although the timer expired | The dashboard shows OVERDUE with the reason. Internet or INNR cloud down: the service keeps retrying (every 2 minutes at most) and switches off as soon as the cloud is back (accepted risk Q7). Find the reason in `signals.log`: `grep command_ack` shows the error text of each attempt |
 | `rest_ignored` / `rest_pending` lines in `decisions.log` | Normal. The INNR cloud list lags the bridge; the service did not believe a single differing answer. Only a worry if it happens for hours |
+
+### Container stopped or not restarted
+
+What to look at, in this order (`deploy/deploy-nas.sh diagnose` collects 1 to 4 in one go):
+1. **Did the NAS reboot?** `uptime` in the report. If the NAS is older than the container's stop time, it did not reboot, and the Docker daemon was restarted by something else.
+2. **Did the Docker daemon restart?** In the report, compare the start times of `dockerd` / `containerd` with the boot time. A daemon that is newer than the NAS was restarted (package action, crash, or killed under memory pressure).
+3. **How did the container end?** `exit=` and `oom_killed=` of the container, and the last lines of its log: `event=shutdown` means a graceful stop (`docker stop`, package stop); no such line and `exit=137` means it was killed (memory, or the daemon was killed).
+4. **Restart policy.** `restart=unless-stopped` does **not** bring a container back after a daemon restart if it had been stopped (including by the Container Manager stop script) first; `restart=always` does. Compare with your other containers in the report.
+5. **Memory.** A 2 GB NAS that is deep in swap (`free -m`, `pswpin` / `pswpout`) kills or stalls things. Big users on a DS218+ are Antivirus scans, Plex, Java-based containers. The report lists the biggest processes.
+
+The service resumes cleanly after any restart (`restart_policy = "resume"`): a plug that was on keeps its original deadline, and an overdue plug is switched off at once. What matters is only that the container runs again quickly.
 
 ### B7. Security notes
 - The Web UI is LAN-only, password-only and plain HTTP (accepted for a home LAN). Never forward its port in the router.

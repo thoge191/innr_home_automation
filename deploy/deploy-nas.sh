@@ -11,6 +11,8 @@
 #   deploy/deploy-nas.sh rollback             back to the previous tag
 #   deploy/deploy-nas.sh status | logs
 #   deploy/deploy-nas.sh fetch-logs [hours]   copy signals.log, decisions.log, ops.log to ./logs/nas/ (one sudo prompt)
+#   deploy/deploy-nas.sh start                start the container if it is not running (after Container Manager restarted)
+#   deploy/deploy-nas.sh diagnose [hours]     metadata-only report about the Docker host to ./logs/nas/diag.txt (one sudo prompt)
 #
 # Nothing secret is passed as an argument: the INNR password and the GHCR token are typed
 # silently on the Mac and streamed over ssh stdin into 0600 files.
@@ -106,6 +108,23 @@ case "$CMD" in
     upload_stage
     remote "$CMD"
     ;;
+  start)
+    preflight
+    upload_stage
+    remote start
+    ;;
+  diagnose)
+    HOURS="${2:-72}"
+    [[ "$HOURS" =~ ^[0-9]{1,4}$ ]] || die "usage: $0 diagnose [hours]"
+    preflight
+    upload_stage
+    remote diagnose "$HOURS"
+    DEST="$ROOT/logs/nas"
+    mkdir -p "$DEST"
+    "${SSH[@]}" 'cat "$HOME/innr-diag-export/diag.txt"' > "$DEST/diag.txt" || die "could not copy the report"
+    "${SSH[@]}" 'rm -rf "$HOME/innr-diag-export"'
+    log "report copied to $DEST/diag.txt ($(wc -l < "$DEST/diag.txt") lines); the temporary copy on the NAS is removed"
+    ;;
   fetch-logs)
     HOURS="${2:-24}"
     [[ "$HOURS" =~ ^[0-9]{1,4}$ ]] || die "usage: $0 fetch-logs [hours]"
@@ -122,7 +141,7 @@ case "$CMD" in
     wc -l "$DEST"/signals.log "$DEST"/decisions.log "$DEST"/ops.log
     ;;
   *)
-    sed -n '2,17p' "$0"
+    sed -n '2,19p' "$0"
     exit 2
     ;;
 esac

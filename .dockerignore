@@ -7,6 +7,8 @@
 !tests/
 !deploy/config.example.toml
 !deploy/merge-client-profile.sh
+!deploy/nas-remote.sh
+!deploy/deploy-nas.sh
 **/__pycache__
 **/*.pyc
 **/.DS_Store
