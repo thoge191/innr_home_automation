@@ -66,9 +66,9 @@ Evidence (NAS container log, UTC): 10:16:28 the bridge confirmed OFF; 10:16:45 t
 Evidence (NAS journal, local time): 07:29 to 07:31 the Docker daemon's calls to its runtime time out and the health probe of the service container times out; 07:31:19 `dockerd` panics (nil pointer dereference, SIGSEGV); systemd restarts it after 2 s (`Restart=always`); the unit has `KillMode=process` so the containers keep running; the new daemon (live-restore off) stops the service container and logs `ShouldRestart failed, container will not be restarted` because its policy was `unless-stopped`; a container with `always` is started again. The system log shows no kernel out-of-memory kill. The NAS has 2 GB RAM and was deep in swap, with an antivirus scan running for 31 hours.
 - [x] Tooling to find this without guessing: `deploy-nas.sh diagnose` (metadata only, privacy-tested), `start`, opt-in `container-log <name>`
 - [x] Restart policy `always` (compose, requirement R7.3, pinned by a test)
-- [ ] Deploy the compose change to the NAS (`deploy-nas.sh deploy <current tag>` recreates the container with the new policy)
-- [ ] Read the panic stack trace of the daemon (new section in `diagnose`) to confirm whether the health probe is involved; if so, relax or drop the container health check on this host
-- [ ] Reduce the trigger on the NAS: antivirus scan schedule, memory use (owner decision)
+- [x] Deployed to the NAS; verified in `diagnose`: the service container shows `restart=always` and runs; the other container's autostart was switched off by the owner (`docker update --restart=no`)
+- [x] Panic stack trace: not recoverable. The NAS journal is volatile and small; the entries of the crash had rotated out about three hours later. The first look showed only the panic line and a health-probe timeout 19 s earlier; no known upstream bug was found for it. The service health check is left as it is; revisit only if the daemon crashes again with a stack trace pointing at the probe
+- [~] Reduce the trigger on the NAS: the antivirus scan (31 h, 455 MB on a 2 GB machine) is switched off by the owner for now; watch whether the morning stops stop
 - Optional, owner decision: `"live-restore": true` in the Container Manager daemon config keeps containers running through daemon crashes (system configuration; DSM updates may overwrite it)
 
 ## M9 Public release preparation

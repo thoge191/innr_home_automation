@@ -196,6 +196,8 @@ countdown again. Disabling auto-off for that plug on its settings page stops the
 
 ### Container stopped or not restarted
 
+**Run `diagnose` soon after an incident:** the NAS journal is small and volatile, and the Docker daemon is verbose, so the evidence of a crash is gone after a few hours. With `restart: always` the service comes back on its own, so a restart can go unnoticed: the dashboard uptime and a `startup` line in `docker logs` show it.
+
 What to look at, in this order (`deploy/deploy-nas.sh diagnose` collects 1 to 4 in one go):
 1. **Did the NAS reboot?** `uptime` in the report. If the NAS is older than the container's stop time, it did not reboot, and the Docker daemon was restarted by something else.
 2. **Did the Docker daemon restart?** In the report, compare the start times of `dockerd` / `containerd` with the boot time. A daemon that is newer than the NAS was restarted (package action, crash, or killed under memory pressure).
