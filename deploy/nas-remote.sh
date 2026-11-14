@@ -198,20 +198,56 @@ case "${1:-}" in
       sudo "$DOCKER" logs --tail 200 "$CONTAINER" 2>&1 | grep -v -e 'kind=signal' -e 'kind=decision' -e 'event=http ' | tail -40 | cut -c1-220
       echo; echo "### our container: last 8 decisions (the end of the file shows when the service stopped)"
       sudo "$DOCKER" exec "$CONTAINER" sh -c 'tail -8 /data/logs/decisions.log' 2>&1 | cut -c1-220
-      echo; echo "### system log: docker / memory / package events, newest last (filtered; other lines are not copied)"
-      PAT='dockerd|containerd|docker daemon|ContainerManager|out of memory|oom-kill|oom_reaper|Killed process|invoked oom|segfault|respawn|synoavscan'
-      for f in /var/log/messages.2.xz /var/log/messages.1.xz; do
-        sudo test -r "$f" && { echo "--- $f"; sudo xz -dc "$f" 2>/dev/null | grep -a -i -E "$PAT" | tail -60 | cut -c1-230; }
-      done
-      echo "--- /var/log/messages"; sudo grep -a -i -E "$PAT" /var/log/messages 2>/dev/null | tail -150 | cut -c1-230
-      echo; echo "### kernel ring buffer: memory kills"
-      sudo dmesg 2>/dev/null | grep -a -i -E 'out of memory|oom|killed process' | tail -20 | cut -c1-230
-      echo; echo "### unit status / journal of the Docker service, last ${H} h (only if systemd tools exist)"
-      sudo systemctl status pkg-ContainerManager-dockerd.service --no-pager 2>&1 | head -14 | cut -c1-200
-      sudo journalctl -u pkg-ContainerManager-dockerd.service --no-pager --since "-${H} hours" 2>&1 | tail -60 | cut -c1-230
+      echo; echo "### oom_score_adj (how likely the kernel kills them first; lower = safer)"
+      for p in $(ps -eo pid,comm 2>/dev/null | awk '$2=="dockerd"||$2=="containerd"{print $1}'); do echo "pid $p: $(cat /proc/$p/oom_score_adj 2>/dev/null)"; done
+      echo; echo "### Docker service: unit file and daemon configuration"
+      sudo systemctl cat pkg-ContainerManager-dockerd.service --no-pager 2>&1 | head -40 | cut -c1-200
+      echo "--- dockerd.json"; sudo cat /var/packages/ContainerManager/etc/dockerd.json 2>&1 | head -40 | cut -c1-200
+      echo; echo "### Docker service lifecycle in the journal, last ${H} h (starts, stops, kills, crashes, watchdog)"
+      LIFE='Starting|Started|Stopping|Stopped|Main process exited|Failed|killed|SIGKILL|SIGTERM|SIGABRT|SIGSEGV|fatal error|panic|goroutine [0-9]+ \[running|[Ww]atchdog|timed out|Timeout|Daemon shutdown|[Ss]hutting down|Deactivated|Scheduled restart|Consumed'
+      sudo journalctl -u pkg-ContainerManager-dockerd.service --no-pager -o short-iso --since "-${H} hours" 2>&1 | grep -a -E "$LIFE" | grep -a -v 'loading plugin' | tail -80 | cut -c1-230
+      echo; echo "### the last lines of the daemon before each stop or crash (what it was doing when it died)"
+      sudo journalctl -u pkg-ContainerManager-dockerd.service --no-pager -o short-iso --since "-${H} hours" 2>&1 | grep -a -v 'loading plugin' | grep -a -B 14 -E 'Main process exited|Failed with result|Watchdog|SIGKILL|SIGABRT|SIGSEGV|fatal error|panic|Stopping' | tail -150 | cut -c1-230
+      echo; echo "### all services: Docker / package / memory / disk-stall events in the system journal (filtered)"
+      sudo journalctl --since "-${H} hours" --no-pager -o short-iso 2>&1 | grep -a -E 'systemd\[1\]: .*(pkg-ContainerManager|docker)|synopkg|synoservice|synosystemd|Out of memory|oom-kill|Killed process|invoked oom|blocked for more than|hung_task|soft lockup|rcu_sched|I/O error|segfault' | grep -a -v -E 'loading plugin|synoavscan' | tail -120 | cut -c1-230
+      echo; echo "### kernel: memory kills, stalls"
+      sudo dmesg 2>/dev/null | grep -a -i -E 'out of memory|oom|killed process|blocked for more than|hung task|soft lockup' | tail -20 | cut -c1-230
+      sudo journalctl -k --since "-${H} hours" --no-pager -o short-iso 2>&1 | grep -a -i -E 'out of memory|oom|killed process|blocked for more than|hung task|soft lockup|rcu_sched' | tail -30 | cut -c1-230
     } > "$F" 2>&1
     set -e
     log "diagnose report written: $(wc -l < "$F") lines"
+    ;;
+  container-log)
+    # OPT-IN summary of the log of ANOTHER container, only when the owner names it. Reads its log, not its
+    # environment or configuration. Secret-looking values are masked before anything is written.
+    NAME="${2:-}"; H="${3:-24}"
+    [[ "$NAME" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$ ]] || die "container name has unexpected characters"
+    [[ "$H" =~ ^[0-9]{1,4}$ ]] || die "hours must be a number"
+    sudo "$DOCKER" inspect -f '{{.Name}}' "$NAME" >/dev/null 2>&1 || die "no container named '$NAME'"
+    OUT="$HOME/innr-diag-export"
+    mkdir -p -m 700 "$OUT"
+    F="$OUT/container-log.txt"
+    set +e
+    MASK='s/([Pp]ass(word|wd)?|[Tt]oken|[Ss]ecret|[Aa]pi[_-]?[Kk]ey|[Aa]uthorization|[Bb]earer|[Cc]ookie|[Ss]ession)([=: "'"'"']+)[^ ,"'"'"']+/\1\3***/g'
+    RAW="$(mktemp)"
+    sudo "$DOCKER" logs --since "${H}h" --timestamps "$NAME" > "$RAW" 2>&1
+    {
+      echo "### container: $(sudo "$DOCKER" inspect -f '{{.Name}} image={{.Config.Image}} restart={{.HostConfig.RestartPolicy.Name}} status={{.State.Status}} started={{.State.StartedAt}}' "$NAME" 2>&1)"
+      echo "window: last ${H} h   lines: $(wc -l < "$RAW")"
+      echo "by kind: error/fatal/exception=$(grep -a -c -i -E 'error|fatal|exception|critical|traceback' "$RAW")  warning=$(grep -a -c -i -E 'warn' "$RAW")  failed=$(grep -a -c -i 'fail' "$RAW")"
+      echo "first line: $(head -1 "$RAW" | cut -c1-40)"; echo "last line:  $(tail -1 "$RAW" | cut -c1-40)"
+      echo; echo "### the most frequent error messages (numbers, ids and addresses normalised; count first)"
+      grep -a -i -E 'error|fatal|exception|critical|traceback|fail' "$RAW" | sed -E "$MASK" \
+        | sed -E 's/^[0-9T:.+Z-]+ //; s/[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9:.,+Z-]+/<time>/g; s/[0-9a-fA-F]{12,}/<id>/g; s/[0-9]+(\.[0-9]+){3}(:[0-9]+)?/<ip>/g; s/[0-9]+/<n>/g' \
+        | cut -c1-200 | sort | uniq -c | sort -rn | head -15
+      echo; echo "### the 30 most recent error lines (masked)"
+      grep -a -i -E 'error|fatal|exception|critical|traceback|fail' "$RAW" | sed -E "$MASK" | tail -30 | cut -c1-260
+      echo; echo "### errors per hour (UTC hour of the docker timestamp)"
+      grep -a -i -E 'error|fatal|exception|critical|traceback|fail' "$RAW" | cut -c1-13 | sort | uniq -c | tail -26
+    } > "$F" 2>&1
+    rm -f "$RAW"
+    set -e
+    log "container log summary written: $(wc -l < "$F") lines"
     ;;
   fetch-logs)
     # Export the signal / decision files (all rotations, oldest first) and the operational log lines
@@ -229,6 +265,6 @@ case "${1:-}" in
     log "exported to $OUT: $(wc -l < "$OUT/signals.log") signal, $(wc -l < "$OUT/decisions.log") decision, $(wc -l < "$OUT/ops.log") operational lines"
     ;;
   *)
-    die "usage: nas-remote.sh login <owner>|secret|deploy <tag> <ip> <bridge-ip> <owner>|rollback|status|logs|start|diagnose [hours]|fetch-logs [hours]"
+    die "usage: nas-remote.sh login <owner>|secret|deploy <tag> <ip> <bridge-ip> <owner>|rollback|status|logs|start|diagnose [hours]|container-log <name> [hours]|fetch-logs [hours]"
     ;;
 esac

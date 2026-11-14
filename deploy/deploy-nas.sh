@@ -13,6 +13,7 @@
 #   deploy/deploy-nas.sh fetch-logs [hours]   copy signals.log, decisions.log, ops.log to ./logs/nas/ (one sudo prompt)
 #   deploy/deploy-nas.sh start                start the container if it is not running (after Container Manager restarted)
 #   deploy/deploy-nas.sh diagnose [hours]     metadata-only report about the Docker host to ./logs/nas/diag.txt (one sudo prompt)
+#   deploy/deploy-nas.sh container-log <name> [hours]   error summary of ONE other container you name (opt-in) to ./logs/nas/<name>.txt
 #
 # Nothing secret is passed as an argument: the INNR password and the GHCR token are typed
 # silently on the Mac and streamed over ssh stdin into 0600 files.
@@ -125,6 +126,19 @@ case "$CMD" in
     "${SSH[@]}" 'rm -rf "$HOME/innr-diag-export"'
     log "report copied to $DEST/diag.txt ($(wc -l < "$DEST/diag.txt") lines); the temporary copy on the NAS is removed"
     ;;
+  container-log)
+    NAME="${2:-}"; HOURS="${3:-24}"
+    [[ "$NAME" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$ ]] || die "usage: $0 container-log <container-name> [hours]"
+    [[ "$HOURS" =~ ^[0-9]{1,4}$ ]] || die "usage: $0 container-log <container-name> [hours]"
+    preflight
+    upload_stage
+    remote container-log "$NAME" "$HOURS"
+    DEST="$ROOT/logs/nas"
+    mkdir -p "$DEST"
+    "${SSH[@]}" 'cat "$HOME/innr-diag-export/container-log.txt"' > "$DEST/$NAME.txt" || die "could not copy the summary"
+    "${SSH[@]}" 'rm -rf "$HOME/innr-diag-export"'
+    log "summary copied to $DEST/$NAME.txt ($(wc -l < "$DEST/$NAME.txt") lines); the temporary copy on the NAS is removed"
+    ;;
   fetch-logs)
     HOURS="${2:-24}"
     [[ "$HOURS" =~ ^[0-9]{1,4}$ ]] || die "usage: $0 fetch-logs [hours]"
@@ -141,7 +155,7 @@ case "$CMD" in
     wc -l "$DEST"/signals.log "$DEST"/decisions.log "$DEST"/ops.log
     ;;
   *)
-    sed -n '2,19p' "$0"
+    sed -n '2,20p' "$0"
     exit 2
     ;;
 esac

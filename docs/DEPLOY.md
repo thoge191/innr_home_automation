@@ -140,6 +140,7 @@ deploy/deploy-nas.sh deploy sha-<8>
 | Roll back | `deploy/deploy-nas.sh rollback` |
 | Start the container if it is not running (for example after Container Manager restarted) | `deploy/deploy-nas.sh start` |
 | Find out why the container stopped (host and container metadata only, copied to `./logs/nas/diag.txt`) | `deploy/deploy-nas.sh diagnose 72` |
+| Summarise the errors in the log of ONE other container that you name (counts, normalised messages, secrets masked; copied to `./logs/nas/<name>.txt`) | `deploy/deploy-nas.sh container-log <name> 24` |
 | Change the INNR password | `deploy/deploy-nas.sh secret` |
 | Renew the GHCR token (every 90 days) | `deploy/deploy-nas.sh login` |
 | Change the Web UI password | `ssh -t myNAS sudo /usr/local/bin/docker exec -it innr-autooff innr-autooff set-password` |
@@ -201,6 +202,14 @@ What to look at, in this order (`deploy/deploy-nas.sh diagnose` collects 1 to 4 
 3. **How did the container end?** `exit=` and `oom_killed=` of the container, and the last lines of its log: `event=shutdown` means a graceful stop (`docker stop`, package stop); no such line and `exit=137` means it was killed (memory, or the daemon was killed).
 4. **Restart policy.** `restart=unless-stopped` does **not** bring a container back after a daemon restart if it had been stopped (including by the Container Manager stop script) first; `restart=always` does. Compare with your other containers in the report.
 5. **Memory.** A 2 GB NAS that is deep in swap (`free -m`, `pswpin` / `pswpout`) kills or stalls things. Big users on a DS218+ are Antivirus scans, Plex, Java-based containers. The report lists the biggest processes.
+
+Reading logs of other containers is **opt-in per call**: `diagnose` never reads them, `container-log <name>` reads exactly the one you name,
+validates the name, and masks values that follow words like password, token, secret, key, authorization or cookie before anything is written.
+
+**What the daemon journal showed on the first real case** (a Docker daemon that died without stopping its containers, then started again):
+the new daemon found the container still running, stopped it (`live_restore` was off), and logged `ShouldRestart failed, container will not be
+restarted` for a container with `restart: unless-stopped`, while a container with `restart: always` was started again. So `unless-stopped` is not
+enough on a host where the daemon can restart under you; `always` is.
 
 The service resumes cleanly after any restart (`restart_policy = "resume"`): a plug that was on keeps its original deadline, and an overdue plug is switched off at once. What matters is only that the container runs again quickly.
 

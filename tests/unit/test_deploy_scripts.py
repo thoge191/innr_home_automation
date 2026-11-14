@@ -42,7 +42,7 @@ def test_usage_lists_the_operations_commands():
 def test_diagnose_never_reads_other_containers_secrets():
     """PRIVACY (static): the NAS hosts other people's containers. Only metadata may be read from them."""
     text = open(REMOTE, encoding="utf-8").read()
-    section = text[text.index("  diagnose)"):text.index("  fetch-logs)")]
+    section = text[text.index("  diagnose)"):text.index("  container-log)")]
     for forbidden in (".Config.Env", ".Config.Cmd", ".Config.Entrypoint", ".Config.Labels", ".Mounts", ".Args", ".Path",
                       ".NetworkSettings", ".HostConfig.Binds", ".HostConfig.PortBindings", "docker-compose", "printenv", "/proc/*/environ"):
         assert forbidden not in section, forbidden
@@ -68,6 +68,8 @@ FAKE_DOCKER = textwrap.dedent('''\
       inspect)
         if [[ "$*" != *"-f"* ]]; then echo '"Env": ["DB_PASSWORD=hunter2-LEAK", "API_KEY=sk-LEAK"]'; exit 0; fi
         id="${@: -1}"
+        if [[ "$id" == ghost ]]; then echo "Error: No such object: ghost" >&2; exit 1; fi
+        if [[ "$id" == watched-app ]]; then echo "/watched-app image=example/watched:1 restart=always status=running started=2026-11-14T06:32:37Z"; exit 0; fi
         if [[ "$id" == aaa111 ]]; then
           echo "/other-app image=example/other:1 restart=always status=running started=2026-11-14T06:32:29Z finished=2026-11-14T06:28:01Z exit=0 oom_killed=false restarts=0 mem_limit=0 error="
         else
@@ -76,7 +78,12 @@ FAKE_DOCKER = textwrap.dedent('''\
       stats)   echo "other-app mem=410MiB / 1.8GiB cpu=3.1%" ;;
       logs)
         name="${@: -1}"
-        if [[ "$name" == innr-autooff ]]; then
+        if [[ "$name" == watched-app ]]; then
+          for i in 1 2 3 4 5; do echo "2026-11-14T05:0$i:01.123456789Z ERROR could not reach server 1$i at 10.1.2.$i:443 (attempt $i) password=hunter2-LEAK"; done
+          echo "2026-11-14T06:10:00.000000000Z INFO job finished ok"
+          echo "2026-11-14T06:20:00.000000000Z WARN slow result"
+          echo "2026-11-14T06:30:00.000000000Z Uncaught exception: database is locked token: abc123SECRET456"
+        elif [[ "$name" == innr-autooff ]]; then
           echo "2026-11-14T06:30:58+00:00 INFO event=shutdown"
           echo "kind=signal event=push should-be-filtered"
         else
@@ -127,7 +134,8 @@ def test_diagnose_collects_metadata_and_leaks_nothing(fakebin):
     assert "live_restore=false" in report and "other-app mem=410MiB" in report
     assert "event=shutdown" in report                      # our own container's log is included
     assert "event=timer_started" in report                 # and the end of our decision log
-    assert "### docker stack start times" in report and "### system log" in report
+    assert "### docker stack start times" in report and "### Docker service lifecycle" in report
+    assert "### the last lines of the daemon before each stop or crash" in report and "### kernel: memory kills" in report
     # what must never be in it
     for leak in ("hunter2-LEAK", "sk-LEAK", "DB_PASSWORD", "API_KEY", "LEAK:"):
         assert leak not in report, leak
@@ -147,3 +155,65 @@ def test_diagnose_rejects_a_bad_hours_argument(fakebin):
 def test_unknown_command_is_refused_with_usage(fakebin):
     r, _ = run_remote(fakebin, "format-everything")
     assert r.returncode != 0 and "usage:" in r.stderr and "diagnose" in r.stderr
+
+
+# ---------------------------------------------------------------- container-log (opt-in, owner names the container)
+@have_bash
+@have_scripts
+def test_container_log_summarises_errors_and_masks_secrets(fakebin):
+    r, home = run_remote(fakebin, "container-log", "watched-app", "24")
+    assert r.returncode == 0, r.stderr
+    report = (home / "innr-diag-export" / "container-log.txt").read_text()
+    assert "### container: /watched-app image=example/watched:1 restart=always" in report
+    assert "window: last 24 h" in report and re.search(r"lines:\s+8\b", report)
+    # five identical errors collapse into one normalised message with its count
+    assert re.search(r"^\s*5 ERROR could not reach server <n> at <ip> \(attempt <n>\) password=\*\*\*", report, re.M), report
+    assert "database is locked" in report                       # the second kind of error is listed too
+    assert "### errors per hour" in report and "2026-11-14T05" in report
+    # secrets are masked before anything is written
+    for leak in ("hunter2-LEAK", "abc123SECRET456"):
+        assert leak not in report, leak
+    assert "token: ***" in report or "token=***" in report
+
+
+@have_bash
+@have_scripts
+@pytest.mark.parametrize("name", ["../etc", "a b", "x;rm -rf /", "$(id)", "", "-x", "a" * 70, "näme"])
+def test_container_log_rejects_unsafe_names(fakebin, name):
+    r, home = run_remote(fakebin, "container-log", name)
+    assert r.returncode != 0 and "unexpected characters" in r.stderr
+    assert not (home / "innr-diag-export" / "container-log.txt").exists()
+
+
+@have_bash
+@have_scripts
+def test_container_log_unknown_container_is_a_clear_error(fakebin):
+    r, home = run_remote(fakebin, "container-log", "ghost")
+    assert r.returncode != 0 and "no container named 'ghost'" in r.stderr
+
+
+@have_bash
+@have_scripts
+def test_diagnose_still_does_not_read_the_watched_container(fakebin):
+    """The opt-in is per call: a plain diagnose must not read other containers' logs, even ones that have errors."""
+    r, home = run_remote(fakebin, "diagnose", "24")
+    assert r.returncode == 0, r.stderr
+    report = (home / "innr-diag-export" / "diag.txt").read_text()
+    assert "could not reach server" not in report and "database is locked" not in report
+
+
+@have_scripts
+def test_container_log_section_is_the_only_place_reading_other_logs():
+    text = open(REMOTE, encoding="utf-8").read()
+    section = text[text.index("  container-log)"):text.index("  fetch-logs)")]
+    assert '[[ "$NAME" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$ ]]' in section      # strict name validation first
+    for forbidden in (".Config.Env", ".Mounts", ".Config.Cmd", ".Config.Labels", "printenv"):
+        assert forbidden not in section, forbidden
+    logs_lines = [l for l in section.splitlines() if re.search(r'"\$DOCKER" logs', l)]
+    assert logs_lines and all('"$NAME"' in l for l in logs_lines)
+    assert "MASK=" in section and "sed -E \"$MASK\"" in section                  # masking is applied to every printed line
+    # outside this section no other container's log is read
+    others = text.replace(section, "")
+    for line in others.splitlines():
+        if re.search(r'"\$DOCKER" logs', line):
+            assert '"$CONTAINER"' in line, line
